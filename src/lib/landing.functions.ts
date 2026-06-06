@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { createClient } from "@supabase/supabase-js";
 
 export type Partner = {
   id: string;
@@ -400,6 +401,38 @@ const MOCK_OPPORTUNITIES: Opportunity[] = [
 
 /* ── Server function ── */
 
+async function fetchLandingDataFromSupabase() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !key || key === "dummy_key_for_local_dev") {
+    return { partners: [], themes: [], metrics: [], opportunities: [] };
+  }
+
+  const supabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const [partnersR, themesR, metricsR, oppsR] = await Promise.all([
+    supabase.from("partners" as never).select("*").order("sort_order"),
+    supabase.from("themes" as never).select("*").order("sort_order"),
+    supabase.from("metrics" as never).select("*").order("sort_order"),
+    supabase.from("opportunities" as never).select("*").order("occurred_on", { ascending: false }),
+  ]);
+
+  if (partnersR.error) console.error("partners error:", partnersR.error);
+  if (themesR.error) console.error("themes error:", themesR.error);
+  if (metricsR.error) console.error("metrics error:", metricsR.error);
+  if (oppsR.error) console.error("opportunities error:", oppsR.error);
+
+  return {
+    partners: (partnersR.data ?? []) as Partner[],
+    themes: (themesR.data ?? []) as Theme[],
+    metrics: (metricsR.data ?? []) as Metric[],
+    opportunities: (oppsR.data ?? []) as Opportunity[],
+  };
+}
+
 export const getLandingData = createServerFn({ method: "GET" }).handler(
   async (): Promise<{
     partners: Partner[];
@@ -407,34 +440,7 @@ export const getLandingData = createServerFn({ method: "GET" }).handler(
     metrics: Metric[];
     opportunities: Opportunity[];
   }> => {
-    const { supabase } = await import("@/integrations/supabase/client");
-    const [partnersR, themesR, metricsR, oppsR] = await Promise.all([
-      supabase
-        .from("partners" as never)
-        .select("*")
-        .order("sort_order"),
-      supabase
-        .from("themes" as never)
-        .select("*")
-        .order("sort_order"),
-      supabase
-        .from("metrics" as never)
-        .select("*")
-        .order("sort_order"),
-      supabase
-        .from("opportunities" as never)
-        .select("*")
-        .order("occurred_on", { ascending: false }),
-    ]);
-    if (partnersR.error) console.error("partners error:", partnersR.error);
-    if (themesR.error) console.error("themes error:", themesR.error);
-    if (metricsR.error) console.error("metrics error:", metricsR.error);
-    if (oppsR.error) console.error("opportunities error:", oppsR.error);
-
-    const partners = (partnersR.data ?? []) as Partner[];
-    const themes = (themesR.data ?? []) as Theme[];
-    const metrics = (metricsR.data ?? []) as Metric[];
-    const opportunities = (oppsR.data ?? []) as Opportunity[];
+    const { partners, themes, metrics, opportunities } = await fetchLandingDataFromSupabase();
 
     return {
       partners: partners.length > 0 ? partners : MOCK_PARTNERS,
